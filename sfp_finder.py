@@ -181,7 +181,19 @@ def build_map_html(ref_lat, ref_lon, ref_name, results, vendor, prod, wl):
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 html, body { width:100%; height:100%; }
+#wrap { position:relative; }
 #map { width:100%; height:490px; }
+#overlay {
+    position:absolute; top:0; left:0; width:100%; height:490px;
+    background:rgba(0,0,0,0.08); display:flex;
+    align-items:center; justify-content:center;
+    z-index:1000; cursor:pointer;
+}
+#overlay span {
+    background:rgba(0,0,0,0.55); color:#fff;
+    padding:8px 18px; border-radius:20px;
+    font-size:13px; pointer-events:none;
+}
 .num-mk {
     width:30px; height:30px; background:__ORANGE__;
     border-radius:50%; color:#fff; font-weight:bold;
@@ -203,7 +215,10 @@ html, body { width:100%; height:100%; }
 </style>
 </head>
 <body>
-<div id="map"></div>
+<div id="wrap">
+  <div id="map"></div>
+  <div id="overlay" onclick="enableMap()"><span>탭하여 지도 조작</span></div>
+</div>
 <script>
 var REF_LAT  = __REF_LAT__;
 var REF_LON  = __REF_LON__;
@@ -245,6 +260,21 @@ STATIONS.forEach(function(s) {
 });
 
 map.fitBounds(bounds, {padding: [40, 40]});
+
+if (L.Browser.mobile) {
+    map.dragging.disable();
+    map.touchZoom.disable();
+    if (map.tap) map.tap.disable();
+} else {
+    document.getElementById('overlay').style.display = 'none';
+}
+
+function enableMap() {
+    document.getElementById('overlay').style.display = 'none';
+    map.dragging.enable();
+    map.touchZoom.enable();
+    if (map.tap) map.tap.enable();
+}
 </script>
 </body>
 </html>"""
