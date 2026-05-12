@@ -4,7 +4,6 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
-import plotly.graph_objects as go
 from math import radians, sin, cos, asin, sqrt
 
 st.set_page_config(
@@ -284,38 +283,6 @@ st.markdown("#### 🗺️ 동일 SFP 국소 지도")
 html = build_map_html(user_lat, user_lon, results,
                       sel.vendor, sel.vendorprod, float(sel.wl))
 components.html(html, height=500, scrolling=False)
-if False:
-    fig = go.Figure()
-    fig.add_trace(go.Scattermapbox(
-        lat=results["lat"].tolist(), lon=results["lon"].tolist(),
-        mode="markers+text",
-        marker=dict(size=20, color=ORANGE),
-        text=[str(i + 1) for i in range(len(results))],
-        textfont=dict(color="white", size=10, family="Arial Black"),
-        textposition="middle center",
-        customdata=results[["station_name", "distance_km"]].values,
-        hovertemplate="<b>%{customdata[0]}</b><br>거리: %{customdata[1]:.2f} km<extra></extra>",
-        showlegend=False,
-    ))
-    fig.add_trace(go.Scattermapbox(
-        lat=[user_lat], lon=[user_lon],
-        mode="markers",
-        marker=dict(size=22, color=PRIMARY),
-        name="내 위치",
-        hovertemplate="<b>내 위치</b><extra></extra>",
-    ))
-    fig.update_layout(
-        mapbox=dict(
-            style="open-street-map",
-            center=dict(lat=(user_lat + results["lat"].mean()) / 2,
-                        lon=(user_lon + results["lon"].mean()) / 2),
-            zoom=10,
-        ),
-        margin=dict(l=0, r=0, t=0, b=0), height=490,
-        legend=dict(bgcolor="rgba(255,255,255,0.85)", x=0.01, y=0.99),
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    st.caption("💡 카카오맵으로 업그레이드하려면 secrets에 KAKAO_MAP_KEY를 설정하세요.")
 
 # ── 결과 테이블 ───────────────────────────────────────────────────────────────
 st.markdown("#### 📋 탐색 결과")
