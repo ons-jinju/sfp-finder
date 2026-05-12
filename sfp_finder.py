@@ -414,10 +414,19 @@ with tab_gps:
             st.info("버튼을 눌러\n현재 위치를 가져오세요.")
 
     with col_wl_sel:
-        all_wl = sorted(df["wl"].dropna().unique().tolist())
-        wl_labels = [f"{w} nm" for w in all_wl]
+        wl_site_counts = (
+            df.dropna(subset=["wl"])
+            .groupby(["wl", "_lat_r", "_lon_r"])
+            .size()
+            .reset_index(name="_n")
+            .groupby("wl")
+            .size()
+            .sort_values(ascending=False)
+        )
+        all_wl = wl_site_counts.index.tolist()
+        wl_labels = [f"{w} nm  ({wl_site_counts[w]}개 국소)" for w in all_wl]
         wl_idx = st.selectbox(
-            "W1 (파장) 선택",
+            "W1 (파장) 선택 — 국소 많은 순",
             range(len(all_wl)),
             format_func=lambda i: wl_labels[i],
             key="wl_select",
