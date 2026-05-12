@@ -17,6 +17,7 @@ PRIMARY = "#2DB400"
 ORANGE  = "#FF6600"
 BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_FILE = os.path.join(BASE_DIR, "SFP 정보.xlsx")
+SHARED_FILE  = os.path.join(BASE_DIR, "_sfp_uploaded.xlsx")
 
 st.markdown("""
 <style>
@@ -211,18 +212,29 @@ with st.sidebar:
     st.markdown(f"<h2 style='color:{PRIMARY}'>📡 5G SFP 탐색</h2>", unsafe_allow_html=True)
     st.markdown("---")
 
-    st.markdown("### 📂 데이터 파일")
-    uploaded = st.file_uploader("SFP 정보 파일 (.xlsx)", type=["xlsx"])
-
-    if uploaded:
-        raw = uploaded.getvalue()
-        df = load_sfp_data(raw, hash(raw))
-        st.success(f"✅ {uploaded.name}")
+    st.markdown("### 📂 데이터")
+    if os.path.exists(SHARED_FILE):
+        mtime = get_mtime(SHARED_FILE)
+        mtime_str = pd.Timestamp(mtime, unit="s").strftime("%m-%d %H:%M")
+        st.success(f"📊 공유 데이터 적용 중\n\n업데이트: {mtime_str}")
+        df = load_sfp_data(SHARED_FILE, mtime)
     elif os.path.exists(DEFAULT_FILE):
         df = load_sfp_data(DEFAULT_FILE, get_mtime(DEFAULT_FILE))
-        st.caption(f"기본 파일: {pd.Timestamp(get_mtime(DEFAULT_FILE), unit='s').strftime('%Y-%m-%d %H:%M')}")
+        st.caption("기본 파일 사용 중")
     else:
-        st.warning("SFP 정보 파일을 업로드해주세요.")
+        df = None
+
+    with st.expander("📂 파일 업데이트 (관리자)"):
+        uploaded = st.file_uploader("SFP 정보 파일 (.xlsx)", type=["xlsx"])
+        if uploaded:
+            raw = uploaded.getvalue()
+            with open(SHARED_FILE, "wb") as f:
+                f.write(raw)
+            st.success("✅ 업로드 완료 — 모든 기기에서 즉시 적용됩니다.")
+            st.rerun()
+
+    if df is None:
+        st.warning("⚠️ 데이터 없음 — 위 메뉴에서 파일을 업로드해주세요.")
         st.stop()
 
     all_stations = sorted(df["station_name"].dropna().unique().tolist())
