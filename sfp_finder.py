@@ -6,6 +6,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 from math import radians, sin, cos, asin, sqrt
+from streamlit_js_eval import get_geolocation
 
 st.set_page_config(
     page_title="AAU 동일 SFP 탐색기",
@@ -276,6 +277,11 @@ st.markdown("<h1 class='app-title'>📡 AAU 동일 SFP 탐색기</h1>", unsafe_a
 
 all_stations = sorted(df["station_name"].dropna().unique().tolist())
 
+if "gps_lat" not in st.session_state:
+    st.session_state.gps_lat = None
+    st.session_state.gps_lon = None
+    st.session_state.gps_active = False
+
 col_kw, col_sel, col_gps = st.columns([1, 2, 1])
 with col_kw:
     keyword = st.text_input("🔍 국소명 검색", placeholder="예: 해인사")
@@ -287,7 +293,8 @@ with col_sel:
     ref_station = st.selectbox("기준 국소", filtered)
 with col_gps:
     st.write("　")
-    gps_btn = st.button("📍 현재위치로 이동", use_container_width=True)
+    if st.button("📍 현재위치로 이동", use_container_width=True):
+        st.session_state.gps_active = True
 
 st.divider()
 
@@ -322,28 +329,20 @@ if results.empty:
     st.info("동일 VENDOR·VENDORPROD·W1 조합의 다른 국소가 없습니다.")
     st.stop()
 
-# GPS 쿼리 파라미터 읽기
-params = st.query_params
-try:
-    gps_lat = float(params.get("gps_lat", "") or "")
-    gps_lon = float(params.get("gps_lon", "") or "")
-except ValueError:
-    gps_lat = gps_lon = None
+# GPS 위치 획득 (버튼 클릭 후 geolocation 컴포넌트 활성화)
+gps_lat = st.session_state.gps_lat
+gps_lon = st.session_state.gps_lon
 
-# GPS 버튼: 위치 확인 후 URL 쿼리 파라미터에 저장 → 페이지 리로드 → 지도 이동
-if gps_btn:
-    components.html("""<!DOCTYPE html><html><head><meta charset="utf-8"></head>
-<body><div id="m" style="font-size:12px;color:#888;padding:4px">📍 위치 확인 중...</div>
-<script>
-navigator.geolocation.getCurrentPosition(function(p){
-    var url=new URL(window.parent.location.href);
-    url.searchParams.set('gps_lat',p.coords.latitude.toFixed(6));
-    url.searchParams.set('gps_lon',p.coords.longitude.toFixed(6));
-    window.parent.location.href=url.toString();
-},function(e){
-    document.getElementById('m').textContent='위치를 가져올 수 없습니다: '+e.message;
-},{enableHighAccuracy:true,timeout:10000});
-</script></body></html>""", height=28)
+if st.session_state.gps_active:
+    loc = get_geolocation()
+    if loc and loc.get("coords"):
+        st.session_state.gps_lat = loc["coords"]["latitude"]
+        st.session_state.gps_lon = loc["coords"]["longitude"]
+        st.session_state.gps_active = False
+        gps_lat = st.session_state.gps_lat
+        gps_lon = st.session_state.gps_lon
+    else:
+        st.caption("📍 GPS 권한을 허용해주세요...")
 
 st.markdown("#### 🗺️ 동일 SFP 국소 지도")
 st.pydeck_chart(
