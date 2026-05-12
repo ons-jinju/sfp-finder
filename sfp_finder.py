@@ -33,24 +33,8 @@ st.markdown("""
     color: #2DB400;
     font-size: 1.8rem;
     font-weight: 700;
-    margin: 0 0 0.25rem 0;
+    margin: 0 0 0.5rem 0;
     line-height: 1.3;
-}
-.sfp-info-box {
-    background: #f6fbf3;
-    border-left: 5px solid #2DB400;
-    padding: 0.75rem 1.25rem;
-    border-radius: 6px;
-    margin-bottom: 1rem;
-    font-size: 0.95rem;
-    line-height: 1.8;
-}
-.search-section {
-    background: #fafafa;
-    border: 1px solid #e0e0e0;
-    border-radius: 8px;
-    padding: 1rem 1.25rem 0.5rem;
-    margin-bottom: 1rem;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -115,7 +99,6 @@ def nearest_same_sfp(df, vendor, vendorprod, wl, ref_lat, ref_lon, ref_lat_r, re
              lat=("lat", "first"), lon=("lon", "first"))
         .reset_index()
     )
-    # 기준 국소 자신은 결과에서 제외
     site_df = site_df[
         ~((site_df["_lat_r"] == ref_lat_r) & (site_df["_lon_r"] == ref_lon_r))
     ]
@@ -186,7 +169,6 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 var bounds = [];
 
-// 기준 국소 (초록 별 마커)
 var refIcon = L.divIcon({ className:'', html:'<div class="ref-mk">★</div>', iconSize:[36,36] });
 L.marker([REF_LAT, REF_LON], {icon: refIcon, zIndexOffset: 1000})
   .addTo(map)
@@ -194,7 +176,6 @@ L.marker([REF_LAT, REF_LON], {icon: refIcon, zIndexOffset: 1000})
   .openPopup();
 bounds.push([REF_LAT, REF_LON]);
 
-// 동일 SFP 국소 (번호 마커)
 STATIONS.forEach(function(s) {
     var icon = L.divIcon({
         className: '',
@@ -229,7 +210,7 @@ map.fitBounds(bounds, {padding: [40, 40]});
             .replace("__PRIMARY__",  PRIMARY))
 
 
-# ── Sidebar (설정) ────────────────────────────────────────────────────────────
+# ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown(f"<h2 style='color:{PRIMARY};font-size:1.1rem;margin-bottom:0.5rem'>📡 설정</h2>",
                 unsafe_allow_html=True)
@@ -258,15 +239,10 @@ with st.sidebar:
         st.warning("⚠️ 데이터 없음 — 파일을 업로드해주세요.")
         st.stop()
 
-    st.markdown("---")
-    n_results = st.slider("표시 국소 수", 5, 20, 10)
-
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 st.markdown("<h1 class='app-title'>📡 AAU 동일 SFP 탐색기</h1>", unsafe_allow_html=True)
 
-# 국소 검색
-st.markdown("<div class='search-section'>", unsafe_allow_html=True)
 all_stations = sorted(df["station_name"].dropna().unique().tolist())
 
 col_kw, col_sel = st.columns([1, 2])
@@ -279,6 +255,8 @@ with col_sel:
         st.stop()
     ref_station = st.selectbox("기준 국소", filtered)
 
+st.divider()
+
 combos = sfp_combos_for_station(df, ref_station)
 if combos.empty:
     st.warning("해당 국소의 SFP 정보가 없습니다.")
@@ -288,22 +266,19 @@ combo_labels = [f"{r.vendor} / {r.vendorprod} / {r.wl}nm" for _, r in combos.ite
 sel_idx = st.radio("SFP 조합 선택", range(len(combo_labels)),
                    format_func=lambda i: combo_labels[i], horizontal=True)
 sel = combos.iloc[sel_idx]
-st.markdown("</div>", unsafe_allow_html=True)
+
+n_results = st.radio("표시 국소 수", [10, 20, 30], horizontal=True)
+
+st.divider()
 
 # 기준 국소 좌표 추출
-ref_row = df[df["station_name"] == ref_station].iloc[0]
-ref_lat, ref_lon   = ref_row["lat"], ref_row["lon"]
-ref_lat_r, ref_lon_r = ref_row["_lat_r"], ref_row["_lon_r"]
+ref_row    = df[df["station_name"] == ref_station].iloc[0]
+ref_lat    = ref_row["lat"]
+ref_lon    = ref_row["lon"]
+ref_lat_r  = ref_row["_lat_r"]
+ref_lon_r  = ref_row["_lon_r"]
 
-st.markdown(
-    f"""<div class='sfp-info-box'>
-    <b>★ 기준 국소</b>: {ref_station}<br>
-    <b>VENDOR</b>: {sel.vendor}&nbsp;&nbsp;
-    <b>VENDORPROD</b>: {sel.vendorprod}&nbsp;&nbsp;
-    <b>W1</b>: {sel.wl} nm
-    </div>""",
-    unsafe_allow_html=True,
-)
+st.caption(f"★ 기준: **{ref_station}** · VENDOR: {sel.vendor} · PROD: {sel.vendorprod} · W1: {sel.wl} nm")
 
 results = nearest_same_sfp(
     df, sel.vendor, sel.vendorprod, float(sel.wl),
@@ -319,41 +294,17 @@ html = build_map_html(ref_lat, ref_lon, ref_station, results,
                       sel.vendor, sel.vendorprod, float(sel.wl))
 components.html(html, height=500, scrolling=False)
 
-# ── 결과 테이블 ───────────────────────────────────────────────────────────────
+# ── 탐색 결과 (단일 테이블) ────────────────────────────────────────────────────
 st.markdown("#### 📋 탐색 결과")
 
-col_rank, col_table = st.columns([1, 4])
+result_table = results[["station_name", "distance_km"]].copy()
+result_table.index = range(1, len(result_table) + 1)
+result_table.index.name = "순위"
+result_table.columns = ["국소명", "거리(km)"]
+result_table["거리(km)"] = result_table["거리(km)"].map("{:.2f}".format)
+st.dataframe(result_table, use_container_width=True)
 
-with col_rank:
-    summary = results[["station_name", "distance_km"]].copy()
-    summary.index = range(1, len(summary) + 1)
-    summary.columns = ["국소명", "거리(km)"]
-    summary["거리(km)"] = summary["거리(km)"].map("{:.2f}".format)
-    st.dataframe(summary, use_container_width=True, height=400)
-
-with col_table:
-    detail_keys = set(zip(results["_lat_r"], results["_lon_r"]))
-    detail_df = df[
-        df.apply(lambda r: (r["_lat_r"], r["_lon_r"]) in detail_keys, axis=1) &
-        (df["vendor"] == sel.vendor) &
-        (df["vendorprod"] == sel.vendorprod) &
-        (df["wl"] == float(sel.wl))
-    ].copy()
-    detail_df["distance_km"] = detail_df.apply(
-        lambda r: haversine_km(ref_lat, ref_lon, r["lat"], r["lon"]), axis=1
-    )
-    coord_to_rank = {(row["_lat_r"], row["_lon_r"]): i + 1 for i, row in results.iterrows()}
-    detail_df["순위"] = detail_df.apply(lambda r: coord_to_rank.get((r["_lat_r"], r["_lon_r"])), axis=1)
-
-    result_df = detail_df.rename(columns={
-        "station_name": "국소명", "vendor": "VENDOR",
-        "vendorprod": "VENDORPROD", "wl": "W1 (nm)", "distance_km": "거리 (km)",
-    })[["순위", "국소명", "거리 (km)", "VENDOR", "VENDORPROD", "W1 (nm)"]].drop_duplicates()
-    result_df = result_df.sort_values("순위")
-    result_df["거리 (km)"] = result_df["거리 (km)"].map("{:.2f}".format)
-    st.dataframe(result_df, use_container_width=True, height=400)
-
-csv = result_df.to_csv(index=False, encoding="utf-8-sig")
+csv = result_table.to_csv(encoding="utf-8-sig")
 st.download_button("📥 결과 CSV 다운로드", csv, "sfp_match_result.csv", "text/csv")
 
 st.caption(f"전체 데이터: {len(df):,}행 · 동일 SFP 매칭 국소: {len(results):,}개")
