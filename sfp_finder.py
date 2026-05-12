@@ -109,14 +109,13 @@ def nearest_same_sfp(df, vendor, vendorprod, wl, ref_lat, ref_lon, ref_lat_r, re
     return site_df.nsmallest(n, "distance_km").reset_index(drop=True)
 
 
-def render_pydeck_map(ref_lat, ref_lon, ref_name, results):
+def render_pydeck_map(ref_lat, ref_lon, ref_name, results, gps_lat=None, gps_lon=None):
     ref_df = pd.DataFrame([{
         "lat": ref_lat, "lon": ref_lon,
         "name": f"★ {ref_name}",
         "info": "기준 국소",
         "rank": "★",
-        "color": [45, 180, 0, 230],
-        "radius": 280,
+        "color": [45, 180, 0, 240],
     }])
 
     res_df = pd.DataFrame([{
@@ -124,21 +123,34 @@ def render_pydeck_map(ref_lat, ref_lon, ref_name, results):
         "name": row.station_name,
         "info": f"{i + 1}위 · {row.distance_km:.2f} km",
         "rank": str(i + 1),
-        "color": [255, 102, 0, 230],
-        "radius": 230,
+        "color": [255, 102, 0, 240],
     } for i, row in results.iterrows()])
 
     all_df = pd.concat([ref_df, res_df], ignore_index=True)
+
+    # GPS 사용자 위치 마커
+    extra_layers = []
+    if gps_lat and gps_lon:
+        gps_df = pd.DataFrame([{
+            "lat": gps_lat, "lon": gps_lon,
+            "name": "📍 내 현재 위치", "info": "", "rank": "●",
+            "color": [66, 133, 244, 240],
+        }])
+        all_df = pd.concat([all_df, gps_df], ignore_index=True)
 
     scatter_layer = pdk.Layer(
         "ScatterplotLayer",
         data=all_df,
         get_position=["lon", "lat"],
         get_fill_color="color",
-        get_radius="radius",
+        get_line_color=[255, 255, 255, 200],
+        get_radius=1,
+        radius_min_pixels=9,
+        radius_max_pixels=16,
+        stroked=True,
+        line_width_min_pixels=2,
         pickable=True,
         auto_highlight=True,
-        highlight_color=[255, 255, 255, 180],
     )
 
     text_layer = pdk.Layer(
@@ -146,23 +158,30 @@ def render_pydeck_map(ref_lat, ref_lon, ref_name, results):
         data=all_df,
         get_position=["lon", "lat"],
         get_text="rank",
-        get_size=14,
+        get_size=13,
         get_color=[255, 255, 255, 255],
         get_alignment_baseline="'center'",
         get_anchor="'middle'",
+        font_weight="bold",
+        font_settings={"sdf": True, "fontSize": 64, "buffer": 8},
+        billboard=True,
     )
 
     all_lats = [ref_lat] + results["lat"].tolist()
     all_lons = [ref_lon] + results["lon"].tolist()
-    center_lat = (max(all_lats) + min(all_lats)) / 2
-    center_lon = (max(all_lons) + min(all_lons)) / 2
-    span = max(max(all_lats) - min(all_lats), max(all_lons) - min(all_lons))
-    zoom = 13 if span < 0.05 else 11 if span < 0.2 else 10 if span < 0.5 else 9 if span < 1.5 else 8
+
+    if gps_lat and gps_lon:
+        center_lat, center_lon, zoom = gps_lat, gps_lon, 13
+    else:
+        center_lat = (max(all_lats) + min(all_lats)) / 2
+        center_lon = (max(all_lons) + min(all_lons)) / 2
+        span = max(max(all_lats) - min(all_lats), max(all_lons) - min(all_lons))
+        zoom = 13 if span < 0.05 else 11 if span < 0.2 else 10 if span < 0.5 else 9 if span < 1.5 else 8
 
     view = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=zoom, pitch=0)
 
     tooltip = {
-        "html": "<div style='font-size:13px;padding:4px 6px'><b>{name}</b><br/>{info}</div>",
+        "html": "<div style='font-size:13px;padding:4px 8px'><b>{name}</b><br/>{info}</div>",
         "style": {"backgroundColor": "rgba(0,0,0,0.75)", "color": "white", "borderRadius": "6px"},
     }
 
@@ -303,34 +322,34 @@ if results.empty:
     st.info("동일 VENDOR·VENDORPROD·W1 조합의 다른 국소가 없습니다.")
     st.stop()
 
-# GPS 버튼: 현재 위치를 지도 중심에 반영
-map_center_lat = ref_lat
-map_center_lon = ref_lon
+# GPS 쿼리 파라미터 읽기
+params = st.query_params
+try:
+    gps_lat = float(params.get("gps_lat", "") or "")
+    gps_lon = float(params.get("gps_lon", "") or "")
+except ValueError:
+    gps_lat = gps_lon = None
 
+# GPS 버튼: 위치 확인 후 URL 쿼리 파라미터에 저장 → 페이지 리로드 → 지도 이동
 if gps_btn:
-    gps_html = """<!DOCTYPE html><html><head><meta charset="utf-8"></head>
-<body>
-<div id="msg" style="font-size:13px;padding:8px;color:#666">위치 확인 중...</div>
+    components.html("""<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body><div id="m" style="font-size:12px;color:#888;padding:4px">📍 위치 확인 중...</div>
 <script>
-if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
-        function(pos) {
-            var lat = pos.coords.latitude.toFixed(6);
-            var lon = pos.coords.longitude.toFixed(6);
-            document.getElementById('msg').innerHTML =
-                '📍 현재 위치: ' + lat + ', ' + lon +
-                '<br><small>위 좌표를 지도 검색에 참고하세요.</small>';
-        },
-        function() { document.getElementById('msg').textContent = '위치를 가져올 수 없습니다.'; }
-    );
-} else {
-    document.getElementById('msg').textContent = '위치 서비스 미지원 브라우저입니다.';
-}
-</script></body></html>"""
-    components.html(gps_html, height=60)
+navigator.geolocation.getCurrentPosition(function(p){
+    var url=new URL(window.parent.location.href);
+    url.searchParams.set('gps_lat',p.coords.latitude.toFixed(6));
+    url.searchParams.set('gps_lon',p.coords.longitude.toFixed(6));
+    window.parent.location.href=url.toString();
+},function(e){
+    document.getElementById('m').textContent='위치를 가져올 수 없습니다: '+e.message;
+},{enableHighAccuracy:true,timeout:10000});
+</script></body></html>""", height=28)
 
 st.markdown("#### 🗺️ 동일 SFP 국소 지도")
-st.pydeck_chart(render_pydeck_map(ref_lat, ref_lon, ref_station, results), use_container_width=True)
+st.pydeck_chart(
+    render_pydeck_map(ref_lat, ref_lon, ref_station, results, gps_lat, gps_lon),
+    use_container_width=True,
+)
 
 # ── 탐색 결과 ─────────────────────────────────────────────────────────────────
 st.markdown("#### 📋 탐색 결과")
