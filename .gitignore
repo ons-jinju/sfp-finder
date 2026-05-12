@@ -1,0 +1,7 @@
+_sfp_uploaded.xlsx
+SFP 정보.xlsx
+*.xlsx
+__pycache__/
+*.pyc
+.streamlit/
+sfp_log.txt
