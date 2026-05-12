@@ -7,7 +7,7 @@ import pandas as pd
 from math import radians, sin, cos, asin, sqrt
 
 st.set_page_config(
-    page_title="5G SFP 국소 탐색기",
+    page_title="AAU 동일 SFP 탐색기",
     page_icon="📡",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -26,7 +26,15 @@ st.markdown("""
     div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
         flex: 1 1 100% !important; min-width: 100% !important;
     }
-    .block-container { padding-left: 1rem !important; padding-right: 1rem !important; }
+    .block-container { padding-left: 0.75rem !important; padding-right: 0.75rem !important; }
+    .app-title { font-size: 1.25rem !important; }
+}
+.app-title {
+    color: #2DB400;
+    font-size: 1.8rem;
+    font-weight: 700;
+    margin: 0 0 0.25rem 0;
+    line-height: 1.3;
 }
 .sfp-info-box {
     background: #f6fbf3;
@@ -36,6 +44,13 @@ st.markdown("""
     margin-bottom: 1rem;
     font-size: 0.95rem;
     line-height: 1.8;
+}
+.search-section {
+    background: #fafafa;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 1rem 1.25rem 0.5rem;
+    margin-bottom: 1rem;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -106,7 +121,6 @@ def nearest_same_sfp(df, vendor, vendorprod, wl, user_lat, user_lon, n):
     return site_df.nsmallest(n, "distance_km").reset_index(drop=True)
 
 
-# ── Leaflet.js 지도 HTML 생성 (API 키 불필요, 어디서든 동작) ──────────────────
 def build_map_html(user_lat, user_lon, results, vendor, prod, wl):
     stations_json = json.dumps([
         {
@@ -166,14 +180,12 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 var bounds = [];
 
-// 내 위치 (초록 마커)
 var userIcon = L.divIcon({ className:'', html:'<div class="user-mk"></div>', iconSize:[20,20] });
 L.marker([USER_LAT, USER_LON], {icon: userIcon})
   .addTo(map)
   .bindPopup('<b style="color:__PRIMARY__">📍 내 위치</b>');
 bounds.push([USER_LAT, USER_LON]);
 
-// 국소 마커 (번호)
 STATIONS.forEach(function(s) {
     var icon = L.divIcon({
         className: '',
@@ -207,16 +219,15 @@ map.fitBounds(bounds, {padding: [30, 30]});
             .replace("__PRIMARY__",  PRIMARY))
 
 
-# ── Sidebar ──────────────────────────────────────────────────────────────────
+# ── Sidebar (설정) ────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown(f"<h2 style='color:{PRIMARY}'>📡 5G SFP 탐색</h2>", unsafe_allow_html=True)
-    st.markdown("---")
+    st.markdown(f"<h2 style='color:{PRIMARY};font-size:1.1rem;margin-bottom:0.5rem'>📡 설정</h2>",
+                unsafe_allow_html=True)
 
-    st.markdown("### 📂 데이터")
     if os.path.exists(SHARED_FILE):
         mtime = get_mtime(SHARED_FILE)
         mtime_str = pd.Timestamp(mtime, unit="s").strftime("%m-%d %H:%M")
-        st.success(f"📊 공유 데이터 적용 중\n\n업데이트: {mtime_str}")
+        st.success(f"📊 공유 데이터\n\n업데이트: {mtime_str}")
         df = load_sfp_data(SHARED_FILE, mtime)
     elif os.path.exists(DEFAULT_FILE):
         df = load_sfp_data(DEFAULT_FILE, get_mtime(DEFAULT_FILE))
@@ -234,10 +245,8 @@ with st.sidebar:
             st.rerun()
 
     if df is None:
-        st.warning("⚠️ 데이터 없음 — 위 메뉴에서 파일을 업로드해주세요.")
+        st.warning("⚠️ 데이터 없음 — 파일을 업로드해주세요.")
         st.stop()
-
-    all_stations = sorted(df["station_name"].dropna().unique().tolist())
 
     st.markdown("---")
     st.markdown("### 📍 내 위치")
@@ -248,30 +257,36 @@ with st.sidebar:
                                step=0.0001, format="%.4f")
 
     st.markdown("---")
-    st.markdown("### 🎯 기준 국소 선택")
-    keyword = st.text_input("국소명 검색", placeholder="예: 진주칠암")
-    filtered = [s for s in all_stations if keyword.lower() in s.lower()] if keyword else all_stations
-
-    if not filtered:
-        st.warning("검색 결과 없음")
-        st.stop()
-
-    ref_station = st.selectbox("국소 선택", filtered, label_visibility="collapsed")
-
-    combos = sfp_combos_for_station(df, ref_station)
-    if combos.empty:
-        st.warning("해당 국소의 SFP 정보가 없습니다.")
-        st.stop()
-
-    combo_labels = [f"{r.vendor} / {r.vendorprod} / {r.wl}nm" for _, r in combos.iterrows()]
-    sel_idx = st.radio("SFP 조합", range(len(combo_labels)),
-                       format_func=lambda i: combo_labels[i])
-    sel = combos.iloc[sel_idx]
     n_results = st.slider("표시 국소 수", 5, 20, 10)
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
-st.markdown(f"<h1 style='color:{PRIMARY}'>📡 5G SFP 국소 탐색기</h1>", unsafe_allow_html=True)
+st.markdown("<h1 class='app-title'>📡 AAU 동일 SFP 탐색기</h1>", unsafe_allow_html=True)
+
+# 국소 검색 — 메인 화면에서 바로 입력 가능
+st.markdown("<div class='search-section'>", unsafe_allow_html=True)
+all_stations = sorted(df["station_name"].dropna().unique().tolist())
+
+col_kw, col_sel = st.columns([1, 2])
+with col_kw:
+    keyword = st.text_input("🔍 국소명 검색", placeholder="예: 진주칠암", label_visibility="visible")
+with col_sel:
+    filtered = [s for s in all_stations if keyword.lower() in s.lower()] if keyword else all_stations
+    if not filtered:
+        st.warning("검색 결과 없음")
+        st.stop()
+    ref_station = st.selectbox("기준 국소", filtered)
+
+combos = sfp_combos_for_station(df, ref_station)
+if combos.empty:
+    st.warning("해당 국소의 SFP 정보가 없습니다.")
+    st.stop()
+
+combo_labels = [f"{r.vendor} / {r.vendorprod} / {r.wl}nm" for _, r in combos.iterrows()]
+sel_idx = st.radio("SFP 조합 선택", range(len(combo_labels)),
+                   format_func=lambda i: combo_labels[i], horizontal=True)
+sel = combos.iloc[sel_idx]
+st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown(
     f"""<div class='sfp-info-box'>
@@ -289,9 +304,7 @@ if results.empty:
     st.info("동일 VENDOR·VENDORPROD·W1 조합의 국소가 없습니다.")
     st.stop()
 
-# ── 지도 (카카오맵 우선, 없으면 OpenStreetMap) ────────────────────────────────
 st.markdown("#### 🗺️ 동일 SFP 국소 지도")
-
 html = build_map_html(user_lat, user_lon, results,
                       sel.vendor, sel.vendorprod, float(sel.wl))
 components.html(html, height=500, scrolling=False)
