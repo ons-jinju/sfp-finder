@@ -212,6 +212,26 @@ html, body { width:100%; height:100%; }
 .popup-content { font-size:13px; line-height:1.8;
     font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif; min-width:180px; }
 .popup-rank { color:__ORANGE__; font-weight:bold; font-size:15px; }
+.loc-btn {
+    background:#fff; border:2px solid rgba(0,0,0,0.25);
+    border-radius:6px; padding:6px 10px; cursor:pointer;
+    font-size:13px; font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+    white-space:nowrap; line-height:1;
+}
+.loc-btn:active { background:#f0f0f0; }
+.loc-btn:disabled { opacity:0.6; cursor:wait; }
+.my-loc-mk {
+    width:16px; height:16px; background:#4285F4;
+    border-radius:50%; border:3px solid #fff;
+    box-shadow:0 0 0 2px #4285F4;
+    animation:pulse 2s infinite;
+    margin-left:-8px; margin-top:-8px;
+}
+@keyframes pulse {
+    0%   { box-shadow:0 0 0 0   rgba(66,133,244,0.5); }
+    70%  { box-shadow:0 0 0 10px rgba(66,133,244,0);   }
+    100% { box-shadow:0 0 0 0   rgba(66,133,244,0);   }
+}
 </style>
 </head>
 <body>
@@ -260,6 +280,43 @@ STATIONS.forEach(function(s) {
 });
 
 map.fitBounds(bounds, {padding: [40, 40]});
+
+// 내 위치 버튼
+var myLocMarker = null;
+var myLocIcon = L.divIcon({className:'', html:'<div class="my-loc-mk"></div>', iconSize:[16,16]});
+
+var LocControl = L.Control.extend({
+    options: {position: 'topright'},
+    onAdd: function() {
+        var btn = L.DomUtil.create('button', 'loc-btn');
+        btn.innerHTML = '📍 내 위치';
+        L.DomEvent.disableClickPropagation(btn);
+        btn.addEventListener('click', function() {
+            if (!navigator.geolocation) { alert('위치 서비스 미지원'); return; }
+            btn.disabled = true;
+            btn.innerHTML = '위치 확인 중…';
+            navigator.geolocation.getCurrentPosition(
+                function(pos) {
+                    var lat = pos.coords.latitude, lon = pos.coords.longitude;
+                    map.flyTo([lat, lon], 14);
+                    if (myLocMarker) map.removeLayer(myLocMarker);
+                    myLocMarker = L.marker([lat, lon], {icon: myLocIcon, zIndexOffset:500})
+                        .addTo(map).bindPopup('<b>📍 내 현재 위치</b>').openPopup();
+                    btn.disabled = false;
+                    btn.innerHTML = '📍 내 위치';
+                },
+                function(err) {
+                    alert('위치를 가져올 수 없습니다.\n' + err.message);
+                    btn.disabled = false;
+                    btn.innerHTML = '📍 내 위치';
+                },
+                {enableHighAccuracy: true, timeout: 10000}
+            );
+        });
+        return btn;
+    }
+});
+new LocControl().addTo(map);
 
 if (L.Browser.mobile) {
     map.dragging.disable();
