@@ -8,7 +8,7 @@ from math import radians, sin, cos, asin, sqrt
 
 st.set_page_config(
     page_title="AAU 동일 SFP 탐색기",
-    page_icon="📡",
+    page_icon="⭐",
     layout="wide",
     initial_sidebar_state="expanded",
 )
