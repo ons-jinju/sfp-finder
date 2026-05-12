@@ -304,20 +304,19 @@ if "gps_lat" not in st.session_state:
     st.session_state.gps_lon = None
     st.session_state.gps_active = False
 
-# GPS 위치 획득 — 탭보다 먼저 실행해야 컴포넌트 위치가 일정하게 유지됨
+# 탭 앞에서 항상 렌더링해야 컴포넌트 트리가 안정적으로 유지되어 탭 위치가 보존됨
+_loc = get_geolocation()
+
 gps_lat = st.session_state.gps_lat
 gps_lon = st.session_state.gps_lon
 
 if st.session_state.gps_active:
-    loc = get_geolocation()
-    if loc and loc.get("coords"):
-        st.session_state.gps_lat = loc["coords"]["latitude"]
-        st.session_state.gps_lon = loc["coords"]["longitude"]
+    if _loc and _loc.get("coords"):
+        st.session_state.gps_lat = _loc["coords"]["latitude"]
+        st.session_state.gps_lon = _loc["coords"]["longitude"]
         st.session_state.gps_active = False
         gps_lat = st.session_state.gps_lat
         gps_lon = st.session_state.gps_lon
-    else:
-        st.caption("📍 GPS 권한을 허용해주세요...")
 
 tab_station, tab_gps = st.tabs(["🏙️ 국소 기준 탐색", "📍 내 위치 기준 탐색"])
 
@@ -410,6 +409,8 @@ with tab_gps:
             st.session_state.gps_active = True
         if gps_lat and gps_lon:
             st.success(f"📍 위치 확인\n\n{gps_lat:.5f}, {gps_lon:.5f}")
+        elif st.session_state.gps_active:
+            st.caption("📍 GPS 권한을 허용해주세요...")
         else:
             st.info("버튼을 눌러\n현재 위치를 가져오세요.")
 
