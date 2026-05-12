@@ -280,6 +280,7 @@ STATIONS.forEach(function(s) {
 });
 
 map.fitBounds(bounds, {padding: [40, 40]});
+setTimeout(function(){ map.invalidateSize(); }, 100);
 
 // 내 위치 버튼
 var myLocMarker = null;
@@ -318,7 +319,7 @@ var LocControl = L.Control.extend({
 });
 new LocControl().addTo(map);
 
-if (L.Browser.mobile) {
+if (window.innerWidth < 768) {
     map.dragging.disable();
     map.touchZoom.disable();
     if (map.tap) map.tap.disable();
