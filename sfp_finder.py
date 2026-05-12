@@ -108,6 +108,53 @@ def nearest_same_sfp(df, vendor, vendorprod, wl, ref_lat, ref_lon, ref_lat_r, re
     return site_df.nsmallest(n, "distance_km").reset_index(drop=True)
 
 
+def build_result_html(results, vendor, prod, wl):
+    rows = ""
+    for i, row in results.iterrows():
+        rank = i + 1
+        rows += (
+            "<tr class='mr' onclick='toggle(__R__)'>".replace("__R__", str(rank)) +
+            "<td class='rk'>" + str(rank) + "</td>" +
+            "<td class='nm'>" + str(row.station_name) + "</td>" +
+            "<td class='ds'>" + f"{row.distance_km:.2f}" + " km</td></tr>" +
+            "<tr id='d__R__' class='dr'>".replace("__R__", str(rank)) +
+            "<td></td><td colspan='2' class='dc'>" +
+            str(vendor) + " / " + str(prod) + " / " + str(wl) + " nm" +
+            "</td></tr>"
+        )
+
+    height = len(results) * 46 + 20
+    template = """<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:14px;background:transparent}
+table{width:100%;border-collapse:collapse}
+.mr{cursor:pointer;border-bottom:1px solid rgba(128,128,128,0.2)}
+.mr:active{background:rgba(128,128,128,0.1)}
+.mr td{padding:11px 8px}
+.rk{width:36px;text-align:center;color:__ORANGE__;font-weight:700;font-size:13px}
+.nm{color:inherit;word-break:break-all;line-height:1.4}
+.ds{width:72px;text-align:right;color:#888;white-space:nowrap;font-size:13px}
+.dr{display:none}
+.dr.open{display:table-row}
+.dc{padding:5px 8px 10px 44px;font-size:12px;color:__PRIMARY__;border-bottom:2px solid rgba(45,180,0,0.25)}
+</style></head>
+<body><table>__ROWS__</table>
+<script>
+function toggle(r){var d=document.getElementById('d'+r);d.classList.toggle('open');}
+</script></body></html>"""
+
+    return (
+        template
+        .replace("__ROWS__",    rows)
+        .replace("__ORANGE__",  ORANGE)
+        .replace("__PRIMARY__", PRIMARY),
+        height
+    )
+
+
 def build_map_html(ref_lat, ref_lon, ref_name, results, vendor, prod, wl):
     stations_json = json.dumps([
         {
@@ -294,17 +341,22 @@ html = build_map_html(ref_lat, ref_lon, ref_station, results,
                       sel.vendor, sel.vendorprod, float(sel.wl))
 components.html(html, height=500, scrolling=False)
 
-# ── 탐색 결과 (단일 테이블) ────────────────────────────────────────────────────
+# ── 탐색 결과 ─────────────────────────────────────────────────────────────────
 st.markdown("#### 📋 탐색 결과")
+st.caption("국소명을 탭하면 SFP 정보가 표시됩니다.")
 
-result_table = results[["station_name", "distance_km"]].copy()
-result_table.index = range(1, len(result_table) + 1)
-result_table.index.name = "순위"
-result_table.columns = ["국소명", "거리(km)"]
-result_table["거리(km)"] = result_table["거리(km)"].map("{:.2f}".format)
-st.dataframe(result_table, use_container_width=True)
+result_html, result_height = build_result_html(results, sel.vendor, sel.vendorprod, float(sel.wl))
+components.html(result_html, height=result_height, scrolling=False)
 
-csv = result_table.to_csv(encoding="utf-8-sig")
+result_csv = results[["station_name", "distance_km"]].copy()
+result_csv.index = range(1, len(result_csv) + 1)
+result_csv.index.name = "순위"
+result_csv.columns = ["국소명", "거리(km)"]
+result_csv["VENDOR"]     = sel.vendor
+result_csv["VENDORPROD"] = sel.vendorprod
+result_csv["W1(nm)"]     = sel.wl
+result_csv["거리(km)"]   = result_csv["거리(km)"].map("{:.2f}".format)
+csv = result_csv.to_csv(encoding="utf-8-sig")
 st.download_button("📥 결과 CSV 다운로드", csv, "sfp_match_result.csv", "text/csv")
 
 st.caption(f"전체 데이터: {len(df):,}행 · 동일 SFP 매칭 국소: {len(results):,}개")
