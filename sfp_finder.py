@@ -129,13 +129,14 @@ def build_result_html(results, vendor, prod, wl):
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:14px;background:transparent}
+body{font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:14px;background:transparent;color:#111}
+@media(prefers-color-scheme:dark){body{color:#f0f0f0}.ds{color:#aaa!important}.mr{border-bottom-color:rgba(255,255,255,0.12)!important}}
 table{width:100%;border-collapse:collapse}
 .mr{cursor:pointer;border-bottom:1px solid rgba(128,128,128,0.2)}
 .mr:active{background:rgba(128,128,128,0.1)}
 .mr td{padding:11px 8px}
 .rk{width:36px;text-align:center;color:__ORANGE__;font-weight:700;font-size:13px}
-.nm{color:inherit;word-break:break-all;line-height:1.4}
+.nm{word-break:break-all;line-height:1.4}
 .ds{width:72px;text-align:right;color:#888;white-space:nowrap;font-size:13px}
 .dr{display:none}
 .dr.open{display:table-row}
