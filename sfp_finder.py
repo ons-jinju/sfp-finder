@@ -103,7 +103,7 @@ def sfp_combos_for_station(df, station_name):
     return rows.reset_index(drop=True)
 
 
-def nearest_same_sfp(df, vendor, vendorprod, wl, user_lat, user_lon, n):
+def nearest_same_sfp(df, vendor, vendorprod, wl, ref_lat, ref_lon, ref_lat_r, ref_lon_r, n):
     matched = df[
         (df["vendor"] == vendor) &
         (df["vendorprod"] == vendorprod) &
@@ -115,13 +115,17 @@ def nearest_same_sfp(df, vendor, vendorprod, wl, user_lat, user_lon, n):
              lat=("lat", "first"), lon=("lon", "first"))
         .reset_index()
     )
+    # 기준 국소 자신은 결과에서 제외
+    site_df = site_df[
+        ~((site_df["_lat_r"] == ref_lat_r) & (site_df["_lon_r"] == ref_lon_r))
+    ]
     site_df["distance_km"] = site_df.apply(
-        lambda r: haversine_km(user_lat, user_lon, r["lat"], r["lon"]), axis=1
+        lambda r: haversine_km(ref_lat, ref_lon, r["lat"], r["lon"]), axis=1
     )
     return site_df.nsmallest(n, "distance_km").reset_index(drop=True)
 
 
-def build_map_html(user_lat, user_lon, results, vendor, prod, wl):
+def build_map_html(ref_lat, ref_lon, ref_name, results, vendor, prod, wl):
     stations_json = json.dumps([
         {
             "rank": i + 1,
@@ -155,11 +159,12 @@ html, body { width:100%; height:100%; }
     box-shadow:0 2px 6px rgba(0,0,0,.4); border:2px solid #fff;
     margin-left:-15px; margin-top:-15px;
 }
-.user-mk {
-    width:20px; height:20px; background:__PRIMARY__;
-    border-radius:50%; border:3px solid #fff;
-    box-shadow:0 2px 6px rgba(0,0,0,.4);
-    margin-left:-10px; margin-top:-10px;
+.ref-mk {
+    width:36px; height:36px; background:__PRIMARY__;
+    border-radius:50%; color:#fff; font-size:18px;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 2px 8px rgba(0,0,0,.5); border:3px solid #fff;
+    margin-left:-18px; margin-top:-18px;
 }
 .popup-content { font-size:13px; line-height:1.8;
     font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif; min-width:180px; }
@@ -169,8 +174,9 @@ html, body { width:100%; height:100%; }
 <body>
 <div id="map"></div>
 <script>
-var USER_LAT = __LAT__;
-var USER_LON = __LON__;
+var REF_LAT  = __REF_LAT__;
+var REF_LON  = __REF_LON__;
+var REF_NAME = __REF_NAME__;
 var STATIONS = __STATIONS__;
 
 var map = L.map('map');
@@ -180,12 +186,15 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 var bounds = [];
 
-var userIcon = L.divIcon({ className:'', html:'<div class="user-mk"></div>', iconSize:[20,20] });
-L.marker([USER_LAT, USER_LON], {icon: userIcon})
+// 기준 국소 (초록 별 마커)
+var refIcon = L.divIcon({ className:'', html:'<div class="ref-mk">★</div>', iconSize:[36,36] });
+L.marker([REF_LAT, REF_LON], {icon: refIcon, zIndexOffset: 1000})
   .addTo(map)
-  .bindPopup('<b style="color:__PRIMARY__">📍 내 위치</b>');
-bounds.push([USER_LAT, USER_LON]);
+  .bindPopup('<b style="color:__PRIMARY__">★ 기준 국소</b><br>' + REF_NAME)
+  .openPopup();
+bounds.push([REF_LAT, REF_LON]);
 
+// 동일 SFP 국소 (번호 마커)
 STATIONS.forEach(function(s) {
     var icon = L.divIcon({
         className: '',
@@ -206,14 +215,15 @@ STATIONS.forEach(function(s) {
     bounds.push([s.lat, s.lon]);
 });
 
-map.fitBounds(bounds, {padding: [30, 30]});
+map.fitBounds(bounds, {padding: [40, 40]});
 </script>
 </body>
 </html>"""
 
     return (html
-            .replace("__LAT__",      str(user_lat))
-            .replace("__LON__",      str(user_lon))
+            .replace("__REF_LAT__",  str(ref_lat))
+            .replace("__REF_LON__",  str(ref_lon))
+            .replace("__REF_NAME__", json.dumps(ref_name, ensure_ascii=False))
             .replace("__STATIONS__", stations_json)
             .replace("__ORANGE__",   ORANGE)
             .replace("__PRIMARY__",  PRIMARY))
@@ -249,27 +259,19 @@ with st.sidebar:
         st.stop()
 
     st.markdown("---")
-    st.markdown("### 📍 내 위치")
-    st.caption("카카오·네이버 지도에서 좌표 확인 후 입력")
-    user_lat = st.number_input("위도", value=35.1800, min_value=33.0, max_value=39.0,
-                               step=0.0001, format="%.4f")
-    user_lon = st.number_input("경도", value=128.1000, min_value=124.0, max_value=132.0,
-                               step=0.0001, format="%.4f")
-
-    st.markdown("---")
     n_results = st.slider("표시 국소 수", 5, 20, 10)
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 st.markdown("<h1 class='app-title'>📡 AAU 동일 SFP 탐색기</h1>", unsafe_allow_html=True)
 
-# 국소 검색 — 메인 화면에서 바로 입력 가능
+# 국소 검색
 st.markdown("<div class='search-section'>", unsafe_allow_html=True)
 all_stations = sorted(df["station_name"].dropna().unique().tolist())
 
 col_kw, col_sel = st.columns([1, 2])
 with col_kw:
-    keyword = st.text_input("🔍 국소명 검색", placeholder="예: 진주칠암", label_visibility="visible")
+    keyword = st.text_input("🔍 국소명 검색", placeholder="예: 해인사")
 with col_sel:
     filtered = [s for s in all_stations if keyword.lower() in s.lower()] if keyword else all_stations
     if not filtered:
@@ -288,9 +290,14 @@ sel_idx = st.radio("SFP 조합 선택", range(len(combo_labels)),
 sel = combos.iloc[sel_idx]
 st.markdown("</div>", unsafe_allow_html=True)
 
+# 기준 국소 좌표 추출
+ref_row = df[df["station_name"] == ref_station].iloc[0]
+ref_lat, ref_lon   = ref_row["lat"], ref_row["lon"]
+ref_lat_r, ref_lon_r = ref_row["_lat_r"], ref_row["_lon_r"]
+
 st.markdown(
     f"""<div class='sfp-info-box'>
-    <b>🎯 기준 국소</b>: {ref_station}<br>
+    <b>★ 기준 국소</b>: {ref_station}<br>
     <b>VENDOR</b>: {sel.vendor}&nbsp;&nbsp;
     <b>VENDORPROD</b>: {sel.vendorprod}&nbsp;&nbsp;
     <b>W1</b>: {sel.wl} nm
@@ -298,14 +305,17 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-results = nearest_same_sfp(df, sel.vendor, sel.vendorprod, float(sel.wl), user_lat, user_lon, n_results)
+results = nearest_same_sfp(
+    df, sel.vendor, sel.vendorprod, float(sel.wl),
+    ref_lat, ref_lon, ref_lat_r, ref_lon_r, n_results
+)
 
 if results.empty:
-    st.info("동일 VENDOR·VENDORPROD·W1 조합의 국소가 없습니다.")
+    st.info("동일 VENDOR·VENDORPROD·W1 조합의 다른 국소가 없습니다.")
     st.stop()
 
 st.markdown("#### 🗺️ 동일 SFP 국소 지도")
-html = build_map_html(user_lat, user_lon, results,
+html = build_map_html(ref_lat, ref_lon, ref_station, results,
                       sel.vendor, sel.vendorprod, float(sel.wl))
 components.html(html, height=500, scrolling=False)
 
@@ -330,7 +340,7 @@ with col_table:
         (df["wl"] == float(sel.wl))
     ].copy()
     detail_df["distance_km"] = detail_df.apply(
-        lambda r: haversine_km(user_lat, user_lon, r["lat"], r["lon"]), axis=1
+        lambda r: haversine_km(ref_lat, ref_lon, r["lat"], r["lon"]), axis=1
     )
     coord_to_rank = {(row["_lat_r"], row["_lon_r"]): i + 1 for i, row in results.iterrows()}
     detail_df["순위"] = detail_df.apply(lambda r: coord_to_rank.get((r["_lat_r"], r["_lon_r"])), axis=1)
