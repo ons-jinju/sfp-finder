@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import pydeck as pdk
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
@@ -108,6 +109,71 @@ def nearest_same_sfp(df, vendor, vendorprod, wl, ref_lat, ref_lon, ref_lat_r, re
     return site_df.nsmallest(n, "distance_km").reset_index(drop=True)
 
 
+def render_pydeck_map(ref_lat, ref_lon, ref_name, results):
+    ref_df = pd.DataFrame([{
+        "lat": ref_lat, "lon": ref_lon,
+        "name": f"★ {ref_name}",
+        "info": "기준 국소",
+        "rank": "★",
+        "color": [45, 180, 0, 230],
+        "radius": 280,
+    }])
+
+    res_df = pd.DataFrame([{
+        "lat": row.lat, "lon": row.lon,
+        "name": row.station_name,
+        "info": f"{i + 1}위 · {row.distance_km:.2f} km",
+        "rank": str(i + 1),
+        "color": [255, 102, 0, 230],
+        "radius": 230,
+    } for i, row in results.iterrows()])
+
+    all_df = pd.concat([ref_df, res_df], ignore_index=True)
+
+    scatter_layer = pdk.Layer(
+        "ScatterplotLayer",
+        data=all_df,
+        get_position=["lon", "lat"],
+        get_fill_color="color",
+        get_radius="radius",
+        pickable=True,
+        auto_highlight=True,
+        highlight_color=[255, 255, 255, 180],
+    )
+
+    text_layer = pdk.Layer(
+        "TextLayer",
+        data=all_df,
+        get_position=["lon", "lat"],
+        get_text="rank",
+        get_size=14,
+        get_color=[255, 255, 255, 255],
+        get_alignment_baseline="'center'",
+        get_anchor="'middle'",
+    )
+
+    all_lats = [ref_lat] + results["lat"].tolist()
+    all_lons = [ref_lon] + results["lon"].tolist()
+    center_lat = (max(all_lats) + min(all_lats)) / 2
+    center_lon = (max(all_lons) + min(all_lons)) / 2
+    span = max(max(all_lats) - min(all_lats), max(all_lons) - min(all_lons))
+    zoom = 13 if span < 0.05 else 11 if span < 0.2 else 10 if span < 0.5 else 9 if span < 1.5 else 8
+
+    view = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=zoom, pitch=0)
+
+    tooltip = {
+        "html": "<div style='font-size:13px;padding:4px 6px'><b>{name}</b><br/>{info}</div>",
+        "style": {"backgroundColor": "rgba(0,0,0,0.75)", "color": "white", "borderRadius": "6px"},
+    }
+
+    return pdk.Deck(
+        map_style="road",
+        initial_view_state=view,
+        layers=[scatter_layer, text_layer],
+        tooltip=tooltip,
+    )
+
+
 def build_result_html(results, vendor, prod, wl):
     rows = ""
     for i, row in results.iterrows():
@@ -156,181 +222,6 @@ function toggle(r){var d=document.getElementById('d'+r);d.classList.toggle('open
     )
 
 
-def build_map_html(ref_lat, ref_lon, ref_name, results, vendor, prod, wl, auto_locate=False):
-    stations_json = json.dumps([
-        {
-            "rank": i + 1,
-            "name": row.station_name,
-            "lat":  row.lat,
-            "lon":  row.lon,
-            "dist": f"{row.distance_km:.2f}",
-            "vendor": vendor,
-            "prod":   prod,
-            "wl":     wl,
-        }
-        for i, row in results.iterrows()
-    ], ensure_ascii=False)
-
-    auto_locate_js = """
-navigator.geolocation.getCurrentPosition(
-    function(pos) {
-        var lat = pos.coords.latitude, lon = pos.coords.longitude;
-        map.flyTo([lat, lon], 14);
-        if (myLocMarker) map.removeLayer(myLocMarker);
-        myLocMarker = L.marker([lat, lon], {icon: myLocIcon, zIndexOffset:500})
-            .addTo(map).bindPopup('<b>\\uD83D\\uDCCD 내 현재 위치</b>').openPopup();
-    },
-    function() {},
-    {enableHighAccuracy: true, timeout: 10000}
-);""" if auto_locate else ""
-
-    html = """<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css"/>
-<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
-<style>
-* { margin:0; padding:0; box-sizing:border-box; }
-html, body { width:100%; height:100%; }
-#map { width:100%; height:490px; }
-.num-mk {
-    width:30px; height:30px; background:__ORANGE__;
-    border-radius:50%; color:#fff; font-weight:bold;
-    font-size:13px; display:flex; align-items:center;
-    justify-content:center; cursor:pointer;
-    box-shadow:0 2px 6px rgba(0,0,0,.4); border:2px solid #fff;
-    margin-left:-15px; margin-top:-15px;
-}
-.ref-mk {
-    width:36px; height:36px; background:__PRIMARY__;
-    border-radius:50%; color:#fff; font-size:18px;
-    display:flex; align-items:center; justify-content:center;
-    box-shadow:0 2px 8px rgba(0,0,0,.5); border:3px solid #fff;
-    margin-left:-18px; margin-top:-18px;
-}
-.popup-content { font-size:13px; line-height:1.8;
-    font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif; min-width:180px; }
-.popup-rank { color:__ORANGE__; font-weight:bold; font-size:15px; }
-.loc-btn {
-    background:#fff; border:2px solid rgba(0,0,0,0.25);
-    border-radius:6px; padding:6px 10px; cursor:pointer;
-    font-size:13px; font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
-    white-space:nowrap; line-height:1;
-}
-.loc-btn:active { background:#f0f0f0; }
-.loc-btn:disabled { opacity:0.6; cursor:wait; }
-.my-loc-mk {
-    width:16px; height:16px; background:#4285F4;
-    border-radius:50%; border:3px solid #fff;
-    box-shadow:0 0 0 2px #4285F4;
-    animation:pulse 2s infinite;
-    margin-left:-8px; margin-top:-8px;
-}
-@keyframes pulse {
-    0%   { box-shadow:0 0 0 0   rgba(66,133,244,0.5); }
-    70%  { box-shadow:0 0 0 10px rgba(66,133,244,0);   }
-    100% { box-shadow:0 0 0 0   rgba(66,133,244,0);   }
-}
-</style>
-</head>
-<body>
-<div id="map"></div>
-<script>
-var REF_LAT  = __REF_LAT__;
-var REF_LON  = __REF_LON__;
-var REF_NAME = __REF_NAME__;
-var STATIONS = __STATIONS__;
-
-var map = L.map('map');
-L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 19
-}).addTo(map);
-
-var bounds = [];
-
-var refIcon = L.divIcon({ className:'', html:'<div class="ref-mk">★</div>', iconSize:[36,36] });
-L.marker([REF_LAT, REF_LON], {icon: refIcon, zIndexOffset: 1000})
-  .addTo(map)
-  .bindPopup('<b style="color:__PRIMARY__">★ 기준 국소</b><br>' + REF_NAME)
-  .openPopup();
-bounds.push([REF_LAT, REF_LON]);
-
-STATIONS.forEach(function(s) {
-    var icon = L.divIcon({
-        className: '',
-        html: '<div class="num-mk">' + s.rank + '</div>',
-        iconSize: [30, 30]
-    });
-    L.marker([s.lat, s.lon], {icon: icon})
-      .addTo(map)
-      .bindPopup(
-        '<div class="popup-content">'
-        + '<span class="popup-rank">' + s.rank + '위</span> ' + s.name + '<br>'
-        + '거리: <b>' + s.dist + ' km</b><br>'
-        + 'VENDOR: ' + s.vendor + '<br>'
-        + 'PROD: ' + s.prod + '<br>'
-        + 'W1: ' + s.wl + ' nm'
-        + '</div>'
-      );
-    bounds.push([s.lat, s.lon]);
-});
-
-map.fitBounds(bounds, {padding: [40, 40]});
-setTimeout(function(){ map.invalidateSize(); }, 100);
-
-var myLocMarker = null;
-var myLocIcon = L.divIcon({className:'', html:'<div class="my-loc-mk"></div>', iconSize:[16,16]});
-
-__AUTO_LOCATE_JS__
-
-var LocControl = L.Control.extend({
-    options: {position: 'topright'},
-    onAdd: function() {
-        var btn = L.DomUtil.create('button', 'loc-btn');
-        btn.innerHTML = '📍 내 위치';
-        L.DomEvent.disableClickPropagation(btn);
-        btn.addEventListener('click', function() {
-            if (!navigator.geolocation) { alert('위치 서비스 미지원'); return; }
-            btn.disabled = true;
-            btn.innerHTML = '확인 중…';
-            navigator.geolocation.getCurrentPosition(
-                function(pos) {
-                    var lat = pos.coords.latitude, lon = pos.coords.longitude;
-                    map.flyTo([lat, lon], 14);
-                    if (myLocMarker) map.removeLayer(myLocMarker);
-                    myLocMarker = L.marker([lat, lon], {icon: myLocIcon, zIndexOffset:500})
-                        .addTo(map).bindPopup('<b>📍 내 현재 위치</b>').openPopup();
-                    btn.disabled = false;
-                    btn.innerHTML = '📍 내 위치';
-                },
-                function(err) {
-                    alert('위치를 가져올 수 없습니다.\n' + err.message);
-                    btn.disabled = false;
-                    btn.innerHTML = '📍 내 위치';
-                },
-                {enableHighAccuracy: true, timeout: 10000}
-            );
-        });
-        return btn;
-    }
-});
-new LocControl().addTo(map);
-</script>
-</body>
-</html>"""
-
-    return (html
-            .replace("__REF_LAT__",       str(ref_lat))
-            .replace("__REF_LON__",       str(ref_lon))
-            .replace("__REF_NAME__",      json.dumps(ref_name, ensure_ascii=False))
-            .replace("__STATIONS__",      stations_json)
-            .replace("__AUTO_LOCATE_JS__", auto_locate_js)
-            .replace("__ORANGE__",        ORANGE)
-            .replace("__PRIMARY__",       PRIMARY))
-
-
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown(f"<h2 style='color:{PRIMARY};font-size:1.1rem;margin-bottom:0.5rem'>📡 설정</h2>",
@@ -376,7 +267,7 @@ with col_sel:
         st.stop()
     ref_station = st.selectbox("기준 국소", filtered)
 with col_gps:
-    st.write("　")  # 라벨 높이 맞춤
+    st.write("　")
     gps_btn = st.button("📍 현재위치로 이동", use_container_width=True)
 
 st.divider()
@@ -412,11 +303,34 @@ if results.empty:
     st.info("동일 VENDOR·VENDORPROD·W1 조합의 다른 국소가 없습니다.")
     st.stop()
 
+# GPS 버튼: 현재 위치를 지도 중심에 반영
+map_center_lat = ref_lat
+map_center_lon = ref_lon
+
+if gps_btn:
+    gps_html = """<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body>
+<div id="msg" style="font-size:13px;padding:8px;color:#666">위치 확인 중...</div>
+<script>
+if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+        function(pos) {
+            var lat = pos.coords.latitude.toFixed(6);
+            var lon = pos.coords.longitude.toFixed(6);
+            document.getElementById('msg').innerHTML =
+                '📍 현재 위치: ' + lat + ', ' + lon +
+                '<br><small>위 좌표를 지도 검색에 참고하세요.</small>';
+        },
+        function() { document.getElementById('msg').textContent = '위치를 가져올 수 없습니다.'; }
+    );
+} else {
+    document.getElementById('msg').textContent = '위치 서비스 미지원 브라우저입니다.';
+}
+</script></body></html>"""
+    components.html(gps_html, height=60)
+
 st.markdown("#### 🗺️ 동일 SFP 국소 지도")
-html = build_map_html(ref_lat, ref_lon, ref_station, results,
-                      sel.vendor, sel.vendorprod, float(sel.wl),
-                      auto_locate=gps_btn)
-components.html(html, height=500, scrolling=False)
+st.pydeck_chart(render_pydeck_map(ref_lat, ref_lon, ref_station, results), use_container_width=True)
 
 # ── 탐색 결과 ─────────────────────────────────────────────────────────────────
 st.markdown("#### 📋 탐색 결과")
