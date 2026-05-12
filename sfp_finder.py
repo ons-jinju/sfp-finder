@@ -156,7 +156,7 @@ function toggle(r){var d=document.getElementById('d'+r);d.classList.toggle('open
     )
 
 
-def build_map_html(ref_lat, ref_lon, ref_name, results, vendor, prod, wl):
+def build_map_html(ref_lat, ref_lon, ref_name, results, vendor, prod, wl, auto_locate=False):
     stations_json = json.dumps([
         {
             "rank": i + 1,
@@ -171,6 +171,19 @@ def build_map_html(ref_lat, ref_lon, ref_name, results, vendor, prod, wl):
         for i, row in results.iterrows()
     ], ensure_ascii=False)
 
+    auto_locate_js = """
+navigator.geolocation.getCurrentPosition(
+    function(pos) {
+        var lat = pos.coords.latitude, lon = pos.coords.longitude;
+        map.flyTo([lat, lon], 14);
+        if (myLocMarker) map.removeLayer(myLocMarker);
+        myLocMarker = L.marker([lat, lon], {icon: myLocIcon, zIndexOffset:500})
+            .addTo(map).bindPopup('<b>\\uD83D\\uDCCD 내 현재 위치</b>').openPopup();
+    },
+    function() {},
+    {enableHighAccuracy: true, timeout: 10000}
+);""" if auto_locate else ""
+
     html = """<!DOCTYPE html>
 <html>
 <head>
@@ -181,19 +194,7 @@ def build_map_html(ref_lat, ref_lon, ref_name, results, vendor, prod, wl):
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 html, body { width:100%; height:100%; }
-#wrap { position:relative; }
 #map { width:100%; height:490px; }
-#overlay {
-    position:absolute; top:0; left:0; width:100%; height:490px;
-    background:rgba(0,0,0,0.08); display:flex;
-    align-items:center; justify-content:center;
-    z-index:1000; cursor:pointer;
-}
-#overlay span {
-    background:rgba(0,0,0,0.55); color:#fff;
-    padding:8px 18px; border-radius:20px;
-    font-size:13px; pointer-events:none;
-}
 .num-mk {
     width:30px; height:30px; background:__ORANGE__;
     border-radius:50%; color:#fff; font-weight:bold;
@@ -235,10 +236,7 @@ html, body { width:100%; height:100%; }
 </style>
 </head>
 <body>
-<div id="wrap">
-  <div id="map"></div>
-  <div id="overlay" onclick="enableMap()"><span>탭하여 지도 조작</span></div>
-</div>
+<div id="map"></div>
 <script>
 var REF_LAT  = __REF_LAT__;
 var REF_LON  = __REF_LON__;
@@ -282,9 +280,10 @@ STATIONS.forEach(function(s) {
 map.fitBounds(bounds, {padding: [40, 40]});
 setTimeout(function(){ map.invalidateSize(); }, 100);
 
-// 내 위치 버튼
 var myLocMarker = null;
 var myLocIcon = L.divIcon({className:'', html:'<div class="my-loc-mk"></div>', iconSize:[16,16]});
+
+__AUTO_LOCATE_JS__
 
 var LocControl = L.Control.extend({
     options: {position: 'topright'},
@@ -295,7 +294,7 @@ var LocControl = L.Control.extend({
         btn.addEventListener('click', function() {
             if (!navigator.geolocation) { alert('위치 서비스 미지원'); return; }
             btn.disabled = true;
-            btn.innerHTML = '위치 확인 중…';
+            btn.innerHTML = '확인 중…';
             navigator.geolocation.getCurrentPosition(
                 function(pos) {
                     var lat = pos.coords.latitude, lon = pos.coords.longitude;
@@ -318,32 +317,18 @@ var LocControl = L.Control.extend({
     }
 });
 new LocControl().addTo(map);
-
-if (window.innerWidth < 768) {
-    map.dragging.disable();
-    map.touchZoom.disable();
-    if (map.tap) map.tap.disable();
-} else {
-    document.getElementById('overlay').style.display = 'none';
-}
-
-function enableMap() {
-    document.getElementById('overlay').style.display = 'none';
-    map.dragging.enable();
-    map.touchZoom.enable();
-    if (map.tap) map.tap.enable();
-}
 </script>
 </body>
 </html>"""
 
     return (html
-            .replace("__REF_LAT__",  str(ref_lat))
-            .replace("__REF_LON__",  str(ref_lon))
-            .replace("__REF_NAME__", json.dumps(ref_name, ensure_ascii=False))
-            .replace("__STATIONS__", stations_json)
-            .replace("__ORANGE__",   ORANGE)
-            .replace("__PRIMARY__",  PRIMARY))
+            .replace("__REF_LAT__",       str(ref_lat))
+            .replace("__REF_LON__",       str(ref_lon))
+            .replace("__REF_NAME__",      json.dumps(ref_name, ensure_ascii=False))
+            .replace("__STATIONS__",      stations_json)
+            .replace("__AUTO_LOCATE_JS__", auto_locate_js)
+            .replace("__ORANGE__",        ORANGE)
+            .replace("__PRIMARY__",       PRIMARY))
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -381,7 +366,7 @@ st.markdown("<h1 class='app-title'>📡 AAU 동일 SFP 탐색기</h1>", unsafe_a
 
 all_stations = sorted(df["station_name"].dropna().unique().tolist())
 
-col_kw, col_sel = st.columns([1, 2])
+col_kw, col_sel, col_gps = st.columns([1, 2, 1])
 with col_kw:
     keyword = st.text_input("🔍 국소명 검색", placeholder="예: 해인사")
 with col_sel:
@@ -390,6 +375,9 @@ with col_sel:
         st.warning("검색 결과 없음")
         st.stop()
     ref_station = st.selectbox("기준 국소", filtered)
+with col_gps:
+    st.write("　")  # 라벨 높이 맞춤
+    gps_btn = st.button("📍 현재위치로 이동", use_container_width=True)
 
 st.divider()
 
@@ -407,12 +395,11 @@ n_results = st.radio("표시 국소 수", [10, 20, 30], horizontal=True)
 
 st.divider()
 
-# 기준 국소 좌표 추출
-ref_row    = df[df["station_name"] == ref_station].iloc[0]
-ref_lat    = ref_row["lat"]
-ref_lon    = ref_row["lon"]
-ref_lat_r  = ref_row["_lat_r"]
-ref_lon_r  = ref_row["_lon_r"]
+ref_row   = df[df["station_name"] == ref_station].iloc[0]
+ref_lat   = ref_row["lat"]
+ref_lon   = ref_row["lon"]
+ref_lat_r = ref_row["_lat_r"]
+ref_lon_r = ref_row["_lon_r"]
 
 st.caption(f"★ 기준: **{ref_station}** · VENDOR: {sel.vendor} · PROD: {sel.vendorprod} · W1: {sel.wl} nm")
 
@@ -427,7 +414,8 @@ if results.empty:
 
 st.markdown("#### 🗺️ 동일 SFP 국소 지도")
 html = build_map_html(ref_lat, ref_lon, ref_station, results,
-                      sel.vendor, sel.vendorprod, float(sel.wl))
+                      sel.vendor, sel.vendorprod, float(sel.wl),
+                      auto_locate=gps_btn)
 components.html(html, height=500, scrolling=False)
 
 # ── 탐색 결과 ─────────────────────────────────────────────────────────────────
