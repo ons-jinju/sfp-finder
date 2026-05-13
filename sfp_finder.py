@@ -1,5 +1,7 @@
+import base64
 import io
 import os
+import requests
 import pydeck as pdk
 import streamlit as st
 import streamlit.components.v1 as components
@@ -19,6 +21,8 @@ ORANGE  = "#FF6600"
 BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_FILE = os.path.join(BASE_DIR, "SFP 정보.xlsx")
 SHARED_FILE  = os.path.join(BASE_DIR, "_sfp_uploaded.xlsx")
+GITHUB_REPO  = "ons-jinju/sfp-finder"
+GITHUB_PATH  = "_sfp_uploaded.xlsx"
 
 st.markdown("""
 <style>
@@ -42,6 +46,21 @@ st.markdown("""
 
 
 # ── 유틸 ─────────────────────────────────────────────────────────────────────
+def _commit_to_github(file_bytes: bytes) -> bool:
+    token = st.secrets.get("GITHUB_TOKEN", "")
+    if not token:
+        return False
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+    existing = requests.get(url, headers=headers)
+    sha = existing.json().get("sha") if existing.status_code == 200 else None
+    payload = {"message": "Update SFP data file", "content": base64.b64encode(file_bytes).decode()}
+    if sha:
+        payload["sha"] = sha
+    resp = requests.put(url, json=payload, headers=headers)
+    return resp.status_code in (200, 201)
+
+
 def haversine_km(lat1, lon1, lat2, lon2):
     R = 6371.0
     p1, p2 = radians(lat1), radians(lat2)
@@ -288,7 +307,9 @@ with st.sidebar:
             raw = uploaded.getvalue()
             with open(SHARED_FILE, "wb") as f:
                 f.write(raw)
-            st.success("✅ 업로드 완료 — 모든 기기에서 즉시 적용됩니다.")
+            saved = _commit_to_github(raw)
+            msg = "✅ 업로드 완료 — 영구 저장됩니다." if saved else "✅ 업로드 완료 — 앱 재시작 시 재업로드 필요."
+            st.success(msg)
             st.rerun()
 
     if df is None:
